@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Brreg Daily">
+<meta name="theme-color" content="#0066cc">
+<title>Brreg Daily</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    background: #f5f5f7; color: #1a1a1a;
+    -webkit-text-size-adjust: 100%;
+  }
+  body { padding: env(safe-area-inset-top) 12px env(safe-area-inset-bottom); }
+  header {
+    padding: 8px 0 12px;
+    border-bottom: 1px solid #e1e1e6;
+    margin-bottom: 12px;
+    position: sticky; top: 0;
+    background: #f5f5f7;
+    z-index: 10;
+  }
+  h1 { font-size: 22px; margin: 0; font-weight: 700; }
+  .meta { font-size: 13px; color: #666; margin-top: 4px; }
+  .controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .controls label { font-size: 13px; color: #444; display: flex; align-items: center; gap: 4px; }
+  .controls input[type="date"] {
+    font: inherit; padding: 6px 8px;
+    border: 1px solid #d1d1d6; border-radius: 6px;
+    background: white;
+  }
+  button {
+    font: inherit; padding: 6px 12px;
+    background: #0066cc; color: white;
+    border: none; border-radius: 6px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .kategori-h {
+    font-size: 14px; font-weight: 600;
+    color: #0066cc; text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 20px 0 8px;
+  }
+  .kategori-h:first-of-type { margin-top: 8px; }
+  .kort {
+    background: white;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .navn { font-size: 17px; font-weight: 600; }
+  .naering { font-size: 14px; color: #0066cc; margin-top: 2px; }
+  .adr { font-size: 13px; color: #444; margin-top: 6px; line-height: 1.4; }
+  .meta-info { font-size: 12px; color: #888; margin-top: 8px; }
+  .meta-info a { color: #0066cc; text-decoration: none; }
+  .status { text-align: center; padding: 24px; color: #666; font-size: 15px; }
+  .feil {
+    padding: 16px; background: #fff0f0; border: 1px solid #ffcccc;
+    border-radius: 8px; color: #b00020; font-size: 14px;
+  }
+  .summary {
+    font-size: 14px; color: #333;
+    background: white; padding: 10px 14px;
+    border-radius: 8px; margin-bottom: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    html, body { background: #000; color: #f5f5f7; }
+    header { background: #000; border-bottom-color: #333; }
+    .kort, .summary, .controls input[type="date"] { background: #1c1c1e; color: #f5f5f7; border-color: #333; }
+    .adr { color: #b8b8c0; }
+    .meta-info { color: #888; }
+    .feil { background: #2a0d0d; border-color: #4d1e1e; color: #ff8080; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Brreg Daily</h1>
+  <div class="meta" id="meta">Laster …</div>
+  <div class="controls">
+    <label>Fra: <input type="date" id="fra"></label>
+    <label>Til: <input type="date" id="til"></label>
+    <button id="hent">Hent</button>
+  </div>
+</header>
+<main id="innhold">
+  <div class="status">Henter data fra Brønnøysundregistrene …</div>
+</main>
+
+<script>
+const innhold = document.getElementById("innhold");
+const metaEl = document.getElementById("meta");
+const fraInput = document.getElementById("fra");
+const tilInput = document.getElementById("til");
+const hentBtn = document.getElementById("hent");
+
+function dagerSiden(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+function settDefault() {
+  fraInput.value = dagerSiden(7);
+  tilInput.value = dagerSiden(1);
+}
+
+async function hentOgVis(fra, til) {
+  innhold.innerHTML = '<div class="status">Henter data fra Brønnøysundregistrene …</div>';
+  hentBtn.disabled = true;
+
+  try {
+    const r = await fetch(`/api/treff?fra=${fra}&til=${til}`);
+    if (!r.ok) throw new Error(`Tjenesten svarte ${r.status}`);
+    const data = await r.json();
+
+    metaEl.textContent =
+      `${data.fra} – ${data.til} · ${data.totalt_hentet} hentet · ${data.antall_treff} av interesse`;
+
+    if (data.antall_treff === 0) {
+      innhold.innerHTML = '<div class="status">Ingen nyetableringer av interesse i perioden.</div>';
+      return;
+    }
+
+    const grupper = {};
+    for (const t of data.treff) {
+      if (!grupper[t.kategori]) grupper[t.kategori] = [];
+      grupper[t.kategori].push(t);
+    }
+
+    let html = `<div class="summary"><b>${data.antall_treff}</b> nyetableringer av interesse, ${Object.keys(grupper).length} kategorier.</div>`;
+
+    for (const kat of Object.keys(grupper).sort()) {
+      const treff = grupper[kat];
+      html += `<div class="kategori-h">${kat} · ${treff.length}</div>`;
+      for (const t of treff) {
+        const adr = [t.adresse, [t.postnummer, t.poststed].filter(Boolean).join(" "), t.kommune]
+          .filter(Boolean).join(", ");
+        html += `
+          <div class="kort">
+            <div class="navn">${escapeHtml(t.navn)}</div>
+            <div class="naering">${escapeHtml(t.naeringNavn)}</div>
+            <div class="adr">${escapeHtml(adr)}</div>
+            <div class="meta-info">
+              ${t.registrertDato} · Org.nr.
+              <a href="https://virksomhet.brreg.no/oppslag/enheter/${t.orgnr}" target="_blank" rel="noopener">${t.orgnr}</a>
+              · Næringskode ${t.naeringskode}
+            </div>
+          </div>`;
+      }
+    }
+    innhold.innerHTML = html;
+  } catch (e) {
+    innhold.innerHTML = `<div class="feil">Klarte ikke hente data: ${escapeHtml(String(e))}</div>`;
+  } finally {
+    hentBtn.disabled = false;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+hentBtn.addEventListener("click", () => {
+  if (fraInput.value && tilInput.value) {
+    hentOgVis(fraInput.value, tilInput.value);
+  }
+});
+
+settDefault();
+hentOgVis(fraInput.value, tilInput.value);
+</script>
+</body>
+</html>
